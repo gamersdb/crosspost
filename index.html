@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>クロスポストツール</title>
+    <script>
+        async function postToBluesky() {
+            const text = document.getElementById("postText").value;
+            const handle = localStorage.getItem("bluesky_handle");
+            const appPassword = localStorage.getItem("bluesky_app_password");
+
+            if (!handle || !appPassword) {
+                alert("BlueskyのハンドルとApp Passwordを設定してください");
+                return;
+            }
+
+            const url = "https://bsky.social/xrpc/com.atproto.repo.createRecord";
+            const payload = {
+                repo: handle,
+                collection: "app.bsky.feed.post",
+                record: {
+                    text: text,
+                    createdAt: new Date().toISOString()
+                }
+            };
+
+            try {
+                const response = await fetch(url, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${appPassword}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    alert("Blueskyに投稿成功！");
+                } else {
+                    const errorText = await response.text();
+                    alert("Bluesky投稿失敗: " + errorText);
+                }
+            } catch (error) {
+                alert("エラー発生: " + error);
+            }
+        }
+
+        function openXPostPage() {
+            const text = encodeURIComponent(document.getElementById("postText").value);
+            window.open(`https://twitter.com/intent/tweet?text=${text}`, "_blank");
+        }
+
+        function saveCredentials() {
+            const handle = document.getElementById("blueskyHandle").value;
+            const appPassword = document.getElementById("blueskyAppPassword").value;
+            localStorage.setItem("bluesky_handle", handle);
+            localStorage.setItem("bluesky_app_password", appPassword);
+            alert("Blueskyの認証情報を保存しました");
+        }
+    </script>
+</head>
+<body>
+    <h2>Bluesky & X クロスポストツール</h2>
+
+    <textarea id="postText" rows="4" cols="50" placeholder="投稿内容を入力"></textarea><br>
+    <button onclick="postToBluesky()">Blueskyに投稿</button>
+    <button onclick="openXPostPage()">Xの投稿ページを開く</button>
+
+    <h3>Blueskyの認証情報</h3>
+    <label>ハンドル（例: user.bsky.social）</label>
+    <input type="text" id="blueskyHandle" placeholder="あなたのBlueskyハンドル"><br>
+
+    <label>App Password</label>
+    <input type="password" id="blueskyAppPassword" placeholder="あなたのBluesky App Password"><br>
+
+    <button onclick="saveCredentials()">認証情報を保存</button>
+</body>
+</html>
