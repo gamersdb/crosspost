@@ -15,30 +15,56 @@
                 return;
             }
 
-            const url = "https://bsky.social/xrpc/com.atproto.repo.createRecord";
-            const payload = {
-                repo: handle,
-                collection: "app.bsky.feed.post",
-                record: {
-                    text: text,
-                    createdAt: new Date().toISOString()
-                }
-            };
+            const pdsHost = "https://bsky.social";
+            const sessionUrl = `${pdsHost}/xrpc/com.atproto.server.createSession`;
+            const postUrl = `${pdsHost}/xrpc/com.atproto.repo.createRecord`;
 
             try {
-                const response = await fetch(url, {
+                // Create session to get access token
+                const sessionResponse = await fetch(sessionUrl, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        identifier: handle,
+                        password: appPassword
+                    })
+                });
+
+                if (!sessionResponse.ok) {
+                    const errorText = await sessionResponse.text();
+                    alert("セッション作成失敗: " + errorText);
+                    return;
+                }
+
+                const sessionData = await sessionResponse.json();
+                const accessJwt = sessionData.accessJwt;
+
+                // Post to Bluesky
+                const payload = {
+                    collection: "app.bsky.feed.post",
+                    repo: handle,
+                    record: {
+                        $type: "app.bsky.feed.post",
+                        text: text,
+                        createdAt: new Date().toISOString()
+                    }
+                };
+
+                const postResponse = await fetch(postUrl, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "Authorization": `Bearer ${appPassword}`
+                        "Authorization": `Bearer ${accessJwt}`
                     },
                     body: JSON.stringify(payload)
                 });
 
-                if (response.ok) {
+                if (postResponse.ok) {
                     alert("Blueskyに投稿成功！");
                 } else {
-                    const errorText = await response.text();
+                    const errorText = await postResponse.text();
                     alert("Bluesky投稿失敗: " + errorText);
                 }
             } catch (error) {
