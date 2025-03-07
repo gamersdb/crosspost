@@ -1,138 +1,191 @@
 <!DOCTYPE html>
 <html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>クロスポストツール</title>
+    <style>
+      #imagePreview {
+        max-width: 300px;
+        max-height: 300px;
+        margin: 10px 0;
+        border: 1px solid #ccc;
+        display: none;
+      }
+    </style>
     <script>
-        async function postToBluesky() {
-            const text = document.getElementById("postText").value;
-            const handle = localStorage.getItem("bluesky_handle");
-            const appPassword = localStorage.getItem("bluesky_app_password");
-            const imageFile = document.getElementById("imageFile").files[0];
+      function previewImage(event) {
+        const imagePreview = document.getElementById("imagePreview");
+        const file = event.target.files[0];
 
-            if (!handle || !appPassword) {
-                alert("BlueskyのハンドルとApp Passwordを設定してください");
-                return;
+        if (file && file.type.match("image.*")) {
+          const reader = new FileReader();
+
+          reader.onload = function (e) {
+            imagePreview.src = e.target.result;
+            imagePreview.style.display = "block";
+          };
+
+          reader.readAsDataURL(file);
+        } else {
+          imagePreview.style.display = "none";
+        }
+      }
+
+      async function postToBluesky() {
+        const text = document.getElementById("postText").value;
+        const handle = localStorage.getItem("bluesky_handle");
+        const appPassword = localStorage.getItem("bluesky_app_password");
+        const imageFile = document.getElementById("imageFile").files[0];
+
+        if (!handle || !appPassword) {
+          alert("BlueskyのハンドルとApp Passwordを設定してください");
+          return;
+        }
+
+        const pdsHost = "https://bsky.social";
+        const sessionUrl = `${pdsHost}/xrpc/com.atproto.server.createSession`;
+        const postUrl = `${pdsHost}/xrpc/com.atproto.repo.createRecord`;
+        const uploadUrl = `${pdsHost}/xrpc/com.atproto.repo.uploadBlob`;
+
+        try {
+          // Create session to get access token
+          const sessionResponse = await fetch(sessionUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              identifier: handle,
+              password: appPassword,
+            }),
+          });
+
+          if (!sessionResponse.ok) {
+            const errorText = await sessionResponse.text();
+            alert("セッション作成失敗: " + errorText);
+            return;
+          }
+
+          const sessionData = await sessionResponse.json();
+          const accessJwt = sessionData.accessJwt;
+
+          let image = null;
+          if (imageFile) {
+            // Upload image
+            const uploadResponse = await fetch(uploadUrl, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${accessJwt}`,
+                "Content-Type": imageFile.type,
+              },
+              body: imageFile,
+            });
+
+            if (!uploadResponse.ok) {
+              const errorText = await uploadResponse.text();
+              alert("画像アップロード失敗: " + errorText);
+              return;
             }
 
-            const pdsHost = "https://bsky.social";
-            const sessionUrl = `${pdsHost}/xrpc/com.atproto.server.createSession`;
-            const postUrl = `${pdsHost}/xrpc/com.atproto.repo.createRecord`;
-            const uploadUrl = `${pdsHost}/xrpc/com.atproto.repo.uploadBlob`;
+            const uploadData = await uploadResponse.json();
+            image = uploadData.blob;
+          }
 
-            try {
-                // Create session to get access token
-                const sessionResponse = await fetch(sessionUrl, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        identifier: handle,
-                        password: appPassword
-                    })
-                });
+          // Post to Bluesky
+          const payload = {
+            collection: "app.bsky.feed.post",
+            repo: handle,
+            record: {
+              $type: "app.bsky.feed.post",
+              text: text,
+              createdAt: new Date().toISOString(),
+              embed: image
+                ? {
+                    $type: "app.bsky.embed.images",
+                    images: [
+                      {
+                        image: image,
+                        alt: "",
+                      },
+                    ],
+                  }
+                : undefined,
+            },
+          };
 
-                if (!sessionResponse.ok) {
-                    const errorText = await sessionResponse.text();
-                    alert("セッション作成失敗: " + errorText);
-                    return;
-                }
+          const postResponse = await fetch(postUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${accessJwt}`,
+            },
+            body: JSON.stringify(payload),
+          });
 
-                const sessionData = await sessionResponse.json();
-                const accessJwt = sessionData.accessJwt;
-
-                let image = null;
-                if (imageFile) {
-                    // Upload image
-                    const uploadResponse = await fetch(uploadUrl, {
-                        method: "POST",
-                        headers: {
-                            "Authorization": `Bearer ${accessJwt}`,
-                            "Content-Type": imageFile.type
-                        },
-                        body: imageFile
-                    });
-
-                    if (!uploadResponse.ok) {
-                        const errorText = await uploadResponse.text();
-                        alert("画像アップロード失敗: " + errorText);
-                        return;
-                    }
-
-                    const uploadData = await uploadResponse.json();
-                    image = uploadData.blob;
-                }
-
-                // Post to Bluesky
-                const payload = {
-                    collection: "app.bsky.feed.post",
-                    repo: handle,
-                    record: {
-                        $type: "app.bsky.feed.post",
-                        text: text,
-                        createdAt: new Date().toISOString(),
-                        embed: image ? {
-                            $type: "app.bsky.embed.images",
-                            images: [{
-                                image: image,
-                                alt: "",
-                            }]
-                        } : undefined
-                    }
-                };
-
-                const postResponse = await fetch(postUrl, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${accessJwt}`
-                    },
-                    body: JSON.stringify(payload)
-                });
-
-                if (postResponse.ok) {
-                    alert("Blueskyに投稿成功！");
-                } else {
-                    const errorText = await postResponse.text();
-                    alert("Bluesky投稿失敗: " + errorText);
-                }
-            } catch (error) {
-                alert("エラー発生: " + error);
-            }
+          if (postResponse.ok) {
+            alert("Blueskyに投稿成功！");
+          } else {
+            const errorText = await postResponse.text();
+            alert("Bluesky投稿失敗: " + errorText);
+          }
+        } catch (error) {
+          alert("エラー発生: " + error);
         }
+      }
 
-        function openXPostPage() {
-            const text = encodeURIComponent(document.getElementById("postText").value);
-            window.open(`https://twitter.com/intent/tweet?text=${text}`, "_blank");
-        }
+      function openXPostPage() {
+        const text = encodeURIComponent(
+          document.getElementById("postText").value
+        );
+        window.open(`https://twitter.com/intent/tweet?text=${text}`, "_blank");
+      }
 
-        function saveCredentials() {
-            const handle = document.getElementById("blueskyHandle").value;
-            const appPassword = document.getElementById("blueskyAppPassword").value;
-            localStorage.setItem("bluesky_handle", handle);
-            localStorage.setItem("bluesky_app_password", appPassword);
-            alert("Blueskyの認証情報を保存しました");
-        }
+      function saveCredentials() {
+        const handle = document.getElementById("blueskyHandle").value;
+        const appPassword = document.getElementById("blueskyAppPassword").value;
+        localStorage.setItem("bluesky_handle", handle);
+        localStorage.setItem("bluesky_app_password", appPassword);
+        alert("Blueskyの認証情報を保存しました");
+      }
     </script>
-</head>
-<body>
+  </head>
+  <body>
     <h2>Bluesky & X クロスポストツール</h2>
 
-    <textarea id="postText" rows="4" cols="50" placeholder="投稿内容を入力"></textarea><br>
+    <textarea
+      id="postText"
+      rows="4"
+      cols="50"
+      placeholder="投稿内容を入力"
+    ></textarea
+    ><br />
     <label for="imageFile">画像を選択:</label>
-    <input type="file" id="imageFile" accept="image/*"><br>
+    <input
+      type="file"
+      id="imageFile"
+      accept="image/*"
+      onchange="previewImage(event)"
+    /><br />
+    <img id="imagePreview" alt="画像プレビュー" /><br />
     <button onclick="postToBluesky()">Blueskyに投稿</button>
     <button onclick="openXPostPage()">Xの投稿ページを開く</button>
 
     <h3>Blueskyの認証情報</h3>
     <label>ハンドル（例: user.bsky.social）</label>
-    <input type="text" id="blueskyHandle" placeholder="あなたのBlueskyハンドル"><br>
+    <input
+      type="text"
+      id="blueskyHandle"
+      placeholder="あなたのBlueskyハンドル"
+    /><br />
 
     <label>App Password</label>
-    <input type="password" id="blueskyAppPassword" placeholder="あなたのBluesky App Password"><br>
+    <input
+      type="password"
+      id="blueskyAppPassword"
+      placeholder="あなたのBluesky App Password"
+    /><br />
 
     <button onclick="saveCredentials()">認証情報を保存</button>
-</body>
+  </body>
 </html>
