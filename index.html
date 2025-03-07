@@ -42,13 +42,100 @@
       // 選択された画像の配列を保持
       let selectedImages = [];
       const MAX_IMAGES = 4;
+      const MAX_FILE_SIZE_MB = 1; // 最大ファイルサイズ（MB）
 
-      function previewImages(event) {
+      // 画像を圧縮する関数
+      async function compressImage(file, maxSizeMB) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(file);
+
+          reader.onload = function (e) {
+            const img = new Image();
+            img.src = e.target.result;
+
+            img.onload = function () {
+              const canvas = document.createElement("canvas");
+              let width = img.width;
+              let height = img.height;
+
+              // 元のアスペクト比を維持
+              const MAX_WIDTH = 1920;
+              const MAX_HEIGHT = 1920;
+
+              if (width > height && width > MAX_WIDTH) {
+                height = Math.round((height * MAX_WIDTH) / width);
+                width = MAX_WIDTH;
+              } else if (height > MAX_HEIGHT) {
+                width = Math.round((width * MAX_HEIGHT) / height);
+                height = MAX_HEIGHT;
+              }
+
+              canvas.width = width;
+              canvas.height = height;
+
+              const ctx = canvas.getContext("2d");
+              ctx.drawImage(img, 0, 0, width, height);
+
+              // 品質を調整して圧縮（0.7は70%の品質）
+              let quality = 0.7;
+              let compressedDataUrl = canvas.toDataURL(file.type, quality);
+              let compressedSize =
+                (compressedDataUrl.length * 3) / 4 / (1024 * 1024);
+
+              // サイズが大きい場合は品質を下げて再圧縮
+              if (compressedSize > maxSizeMB) {
+                quality = Math.max(
+                  0.1,
+                  ((quality * maxSizeMB) / compressedSize).toFixed(2)
+                );
+                compressedDataUrl = canvas.toDataURL(file.type, quality);
+              }
+
+              // DataURLをBlobに変換
+              fetch(compressedDataUrl)
+                .then((res) => res.blob())
+                .then((blob) => {
+                  // 元のファイル名を保持したFileオブジェクトを作成
+                  const compressedFile = new File([blob], file.name, {
+                    type: file.type,
+                    lastModified: new Date().getTime(),
+                  });
+
+                  resolve({
+                    file: compressedFile,
+                    dataUrl: compressedDataUrl,
+                  });
+                })
+                .catch((err) => reject(err));
+            };
+
+            img.onerror = function () {
+              reject(new Error("画像の読み込みに失敗しました"));
+            };
+          };
+
+          reader.onerror = function () {
+            reject(new Error("ファイルの読み込みに失敗しました"));
+          };
+        });
+      }
+
+      async function previewImages(event) {
         const files = event.target.files;
         const container = document.getElementById("imagePreviewContainer");
 
         // ファイルが選択されていない場合は何もしない
         if (files.length === 0) return;
+
+        // 処理中表示
+        const processingMsg = document.createElement("div");
+        processingMsg.id = "processingMessage";
+        processingMsg.textContent = "画像を処理中...";
+        processingMsg.style.padding = "10px";
+        processingMsg.style.backgroundColor = "#f0f0f0";
+        processingMsg.style.margin = "10px 0";
+        container.appendChild(processingMsg);
 
         // 新しい画像を追加（最大4枚まで）
         for (
@@ -58,15 +145,51 @@
         ) {
           const file = files[i];
           if (file && file.type.match("image.*")) {
-            const reader = new FileReader();
+            try {
+              // ファイルサイズをチェック
+              const fileSizeMB = file.size / (1024 * 1024);
+              let imageData;
 
-            reader.onload = function (e) {
+              if (fileSizeMB > MAX_FILE_SIZE_MB) {
+                console.log(
+                  `画像 ${file.name} (${fileSizeMB.toFixed(
+                    2
+                  )}MB) を圧縮します...`
+                );
+                processingMsg.textContent = `画像を圧縮中... (${
+                  i + 1
+                }/${Math.min(
+                  files.length,
+                  MAX_IMAGES - selectedImages.length
+                )})`;
+
+                // 画像を圧縮
+                imageData = await compressImage(file, MAX_FILE_SIZE_MB);
+
+                // 圧縮後のサイズを確認（デバッグ用）
+                const compressedSizeMB = imageData.file.size / (1024 * 1024);
+                console.log(
+                  `圧縮後: ${compressedSizeMB.toFixed(2)}MB (${Math.round(
+                    (1 - compressedSizeMB / fileSizeMB) * 100
+                  )}% 削減)`
+                );
+              } else {
+                // 圧縮不要の場合は元のファイルを使用
+                const reader = new FileReader();
+                imageData = await new Promise((resolve, reject) => {
+                  reader.onload = (e) =>
+                    resolve({
+                      file: file,
+                      dataUrl: e.target.result,
+                    });
+                  reader.onerror = reject;
+                  reader.readAsDataURL(file);
+                });
+              }
+
               // 画像情報をselectedImagesに追加
               const imageIndex = selectedImages.length;
-              selectedImages.push({
-                file: file,
-                dataUrl: e.target.result,
-              });
+              selectedImages.push(imageData);
 
               // プレビュー要素を作成
               const previewItem = document.createElement("div");
@@ -75,7 +198,7 @@
 
               const img = document.createElement("img");
               img.className = "imagePreview";
-              img.src = e.target.result;
+              img.src = imageData.dataUrl;
               img.alt = "画像プレビュー";
 
               const removeButton = document.createElement("button");
@@ -96,10 +219,19 @@
 
               // 選択状態の更新をユーザーに通知
               updateImageCounter();
-            };
-
-            reader.readAsDataURL(file);
+            } catch (error) {
+              console.error(
+                `画像の処理中にエラーが発生しました: ${error.message}`
+              );
+              alert(`画像 ${file.name} の処理中にエラーが発生しました`);
+            }
           }
+        }
+
+        // 処理中メッセージを削除
+        const processingElement = document.getElementById("processingMessage");
+        if (processingElement) {
+          container.removeChild(processingElement);
         }
 
         // ファイル選択をリセット（次回の選択に備える）
@@ -172,6 +304,83 @@
           if (!proceed) return;
         }
 
+        // 画像サイズのチェックと必要に応じて圧縮
+        const compressedImages = [...selectedImages]; // 元の配列をコピー
+
+        // 圧縮が必要な画像があるか確認
+        let compressionNeeded = false;
+        for (let i = 0; i < selectedImages.length; i++) {
+          const imageFile = selectedImages[i].file;
+          const fileSizeMB = imageFile.size / (1024 * 1024);
+          console.log(
+            `画像 ${i + 1}: ${imageFile.name}, サイズ: ${fileSizeMB.toFixed(
+              2
+            )}MB`
+          );
+
+          if (fileSizeMB > MAX_FILE_SIZE_MB) {
+            console.warn(
+              `警告: 画像 ${
+                i + 1
+              } は${MAX_FILE_SIZE_MB}MBを超えています (${fileSizeMB.toFixed(
+                2
+              )}MB)`
+            );
+            compressionNeeded = true;
+          }
+        }
+
+        // 圧縮が必要な場合は処理を実行
+        if (compressionNeeded) {
+          // プログレスメッセージを表示
+          const compressMsg = document.createElement("div");
+          compressMsg.id = "compressProgress";
+          compressMsg.textContent = "大きいサイズの画像を圧縮中...";
+          compressMsg.style.padding = "10px";
+          compressMsg.style.backgroundColor = "#f0f0f0";
+          compressMsg.style.position = "fixed";
+          compressMsg.style.top = "10px";
+          compressMsg.style.right = "10px";
+          compressMsg.style.zIndex = "1000";
+          document.body.appendChild(compressMsg);
+
+          try {
+            // 各画像を確認し、必要に応じて圧縮
+            for (let i = 0; i < selectedImages.length; i++) {
+              const imageFile = selectedImages[i].file;
+              const fileSizeMB = imageFile.size / (1024 * 1024);
+
+              if (fileSizeMB > MAX_FILE_SIZE_MB) {
+                compressMsg.textContent = `画像を圧縮中... (${i + 1}/${
+                  selectedImages.length
+                })`;
+
+                // 画像を圧縮
+                const compressedData = await compressImage(
+                  imageFile,
+                  MAX_FILE_SIZE_MB
+                );
+                compressedImages[i] = compressedData;
+
+                // 圧縮後のサイズを確認（デバッグ用）
+                const compressedSizeMB =
+                  compressedData.file.size / (1024 * 1024);
+                console.log(
+                  `圧縮後: ${compressedSizeMB.toFixed(2)}MB (${Math.round(
+                    (1 - compressedSizeMB / fileSizeMB) * 100
+                  )}% 削減)`
+                );
+              }
+            }
+          } catch (error) {
+            console.error("画像圧縮中にエラーが発生しました:", error);
+            alert("画像の圧縮中にエラーが発生しました。処理を続行します。");
+          } finally {
+            // プログレスメッセージを削除
+            document.body.removeChild(compressMsg);
+          }
+        }
+
         const pdsHost = "https://bsky.social";
         const sessionUrl = `${pdsHost}/xrpc/com.atproto.server.createSession`;
         const postUrl = `${pdsHost}/xrpc/com.atproto.repo.createRecord`;
@@ -215,13 +424,13 @@
             progressMsg.style.zIndex = "1000";
             document.body.appendChild(progressMsg);
 
-            // 各画像をアップロード
-            for (let i = 0; i < selectedImages.length; i++) {
+            // 各画像をアップロード（圧縮済みの画像を使用）
+            for (let i = 0; i < compressedImages.length; i++) {
               progressMsg.textContent = `画像をアップロード中... (${i + 1}/${
-                selectedImages.length
+                compressedImages.length
               })`;
 
-              const imageFile = selectedImages[i].file;
+              const imageFile = compressedImages[i].file;
               const uploadResponse = await fetch(uploadUrl, {
                 method: "POST",
                 headers: {
