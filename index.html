@@ -5,42 +5,148 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>クロスポストツール</title>
     <style>
-      #imagePreview {
-        max-width: 300px;
-        max-height: 300px;
+      #imagePreviewContainer {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
         margin: 10px 0;
+      }
+      .imagePreview {
+        max-width: 150px;
+        max-height: 150px;
         border: 1px solid #ccc;
-        display: none;
+        object-fit: contain;
+      }
+      .previewItem {
+        position: relative;
+        margin-bottom: 10px;
+      }
+      .removeImage {
+        position: absolute;
+        top: 0;
+        right: 0;
+        background: rgba(255, 0, 0, 0.7);
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        font-size: 12px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
     </style>
     <script>
-      function previewImage(event) {
-        const imagePreview = document.getElementById("imagePreview");
-        const file = event.target.files[0];
+      // 選択された画像の配列を保持
+      let selectedImages = [];
+      const MAX_IMAGES = 4;
 
-        if (file && file.type.match("image.*")) {
-          const reader = new FileReader();
+      function previewImages(event) {
+        const files = event.target.files;
+        const container = document.getElementById("imagePreviewContainer");
 
-          reader.onload = function (e) {
-            imagePreview.src = e.target.result;
-            imagePreview.style.display = "block";
+        // 新しい画像を追加（最大4枚まで）
+        for (
+          let i = 0;
+          i < files.length && selectedImages.length < MAX_IMAGES;
+          i++
+        ) {
+          const file = files[i];
+          if (file && file.type.match("image.*")) {
+            const reader = new FileReader();
+
+            reader.onload = function (e) {
+              // 画像情報をselectedImagesに追加
+              const imageIndex = selectedImages.length;
+              selectedImages.push({
+                file: file,
+                dataUrl: e.target.result,
+              });
+
+              // プレビュー要素を作成
+              const previewItem = document.createElement("div");
+              previewItem.className = "previewItem";
+              previewItem.dataset.index = imageIndex;
+
+              const img = document.createElement("img");
+              img.className = "imagePreview";
+              img.src = e.target.result;
+              img.alt = "画像プレビュー";
+
+              const removeButton = document.createElement("button");
+              removeButton.className = "removeImage";
+              removeButton.innerHTML = "×";
+              removeButton.onclick = function () {
+                removeImage(imageIndex);
+              };
+
+              previewItem.appendChild(img);
+              previewItem.appendChild(removeButton);
+              container.appendChild(previewItem);
+
+              // 最大枚数に達したら入力を無効化
+              if (selectedImages.length >= MAX_IMAGES) {
+                document.getElementById("imageFile").disabled = true;
+              }
+            };
+
+            reader.readAsDataURL(file);
+          }
+        }
+      }
+
+      function removeImage(index) {
+        // 画像を削除
+        selectedImages.splice(index, 1);
+
+        // プレビュー表示を更新
+        const container = document.getElementById("imagePreviewContainer");
+        container.innerHTML = "";
+
+        // 残りの画像を再表示
+        selectedImages.forEach((image, idx) => {
+          const previewItem = document.createElement("div");
+          previewItem.className = "previewItem";
+          previewItem.dataset.index = idx;
+
+          const img = document.createElement("img");
+          img.className = "imagePreview";
+          img.src = image.dataUrl;
+          img.alt = "画像プレビュー";
+
+          const removeButton = document.createElement("button");
+          removeButton.className = "removeImage";
+          removeButton.innerHTML = "×";
+          removeButton.onclick = function () {
+            removeImage(idx);
           };
 
-          reader.readAsDataURL(file);
-        } else {
-          imagePreview.style.display = "none";
-        }
+          previewItem.appendChild(img);
+          previewItem.appendChild(removeButton);
+          container.appendChild(previewItem);
+        });
+
+        // 入力を再度有効化
+        document.getElementById("imageFile").disabled = false;
       }
 
       async function postToBluesky() {
         const text = document.getElementById("postText").value;
         const handle = localStorage.getItem("bluesky_handle");
         const appPassword = localStorage.getItem("bluesky_app_password");
-        const imageFile = document.getElementById("imageFile").files[0];
 
         if (!handle || !appPassword) {
           alert("BlueskyのハンドルとApp Passwordを設定してください");
           return;
+        }
+
+        if (selectedImages.length === 0) {
+          const proceed = confirm(
+            "画像が選択されていません。このまま投稿しますか？"
+          );
+          if (!proceed) return;
         }
 
         const pdsHost = "https://bsky.social";
@@ -70,26 +176,54 @@
           const sessionData = await sessionResponse.json();
           const accessJwt = sessionData.accessJwt;
 
-          let image = null;
-          if (imageFile) {
-            // Upload image
-            const uploadResponse = await fetch(uploadUrl, {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${accessJwt}`,
-                "Content-Type": imageFile.type,
-              },
-              body: imageFile,
-            });
+          // 画像をアップロード
+          const uploadedImages = [];
 
-            if (!uploadResponse.ok) {
-              const errorText = await uploadResponse.text();
-              alert("画像アップロード失敗: " + errorText);
-              return;
+          if (selectedImages.length > 0) {
+            // プログレスメッセージを表示
+            const progressMsg = document.createElement("div");
+            progressMsg.id = "uploadProgress";
+            progressMsg.textContent = "画像をアップロード中...";
+            progressMsg.style.padding = "10px";
+            progressMsg.style.backgroundColor = "#f0f0f0";
+            progressMsg.style.position = "fixed";
+            progressMsg.style.top = "10px";
+            progressMsg.style.right = "10px";
+            progressMsg.style.zIndex = "1000";
+            document.body.appendChild(progressMsg);
+
+            // 各画像をアップロード
+            for (let i = 0; i < selectedImages.length; i++) {
+              progressMsg.textContent = `画像をアップロード中... (${i + 1}/${
+                selectedImages.length
+              })`;
+
+              const imageFile = selectedImages[i].file;
+              const uploadResponse = await fetch(uploadUrl, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${accessJwt}`,
+                  "Content-Type": imageFile.type,
+                },
+                body: imageFile,
+              });
+
+              if (!uploadResponse.ok) {
+                const errorText = await uploadResponse.text();
+                alert(`画像${i + 1}のアップロード失敗: ${errorText}`);
+                document.body.removeChild(progressMsg);
+                return;
+              }
+
+              const uploadData = await uploadResponse.json();
+              uploadedImages.push({
+                image: uploadData.blob,
+                alt: "",
+              });
             }
 
-            const uploadData = await uploadResponse.json();
-            image = uploadData.blob;
+            // プログレスメッセージを削除
+            document.body.removeChild(progressMsg);
           }
 
           // Post to Bluesky
@@ -100,17 +234,13 @@
               $type: "app.bsky.feed.post",
               text: text,
               createdAt: new Date().toISOString(),
-              embed: image
-                ? {
-                    $type: "app.bsky.embed.images",
-                    images: [
-                      {
-                        image: image,
-                        alt: "",
-                      },
-                    ],
-                  }
-                : undefined,
+              embed:
+                uploadedImages.length > 0
+                  ? {
+                      $type: "app.bsky.embed.images",
+                      images: uploadedImages,
+                    }
+                  : undefined,
             },
           };
 
@@ -160,14 +290,16 @@
       placeholder="投稿内容を入力"
     ></textarea
     ><br />
-    <label for="imageFile">画像を選択:</label>
+    <label for="imageFile">画像を選択（最大4枚）:</label>
     <input
       type="file"
       id="imageFile"
       accept="image/*"
-      onchange="previewImage(event)"
+      multiple
+      onchange="previewImages(event)"
     /><br />
-    <img id="imagePreview" alt="画像プレビュー" /><br />
+    <div id="imagePreviewContainer"></div>
+    <br />
     <button onclick="postToBluesky()">Blueskyに投稿</button>
     <button onclick="openXPostPage()">Xの投稿ページを開く</button>
 
