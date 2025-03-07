@@ -47,6 +47,9 @@
         const files = event.target.files;
         const container = document.getElementById("imagePreviewContainer");
 
+        // ファイルが選択されていない場合は何もしない
+        if (files.length === 0) return;
+
         // 新しい画像を追加（最大4枚まで）
         for (
           let i = 0;
@@ -90,11 +93,17 @@
               if (selectedImages.length >= MAX_IMAGES) {
                 document.getElementById("imageFile").disabled = true;
               }
+
+              // 選択状態の更新をユーザーに通知
+              updateImageCounter();
             };
 
             reader.readAsDataURL(file);
           }
         }
+
+        // ファイル選択をリセット（次回の選択に備える）
+        event.target.value = "";
       }
 
       function removeImage(index) {
@@ -130,6 +139,20 @@
 
         // 入力を再度有効化
         document.getElementById("imageFile").disabled = false;
+
+        // ファイル選択をリセット
+        const fileInput = document.getElementById("imageFile");
+        fileInput.value = ""; // 選択状態をクリア
+
+        // 選択状態の更新をユーザーに通知
+        updateImageCounter();
+      }
+
+      function updateImageCounter() {
+        const counter = document.getElementById("imageCounter");
+        if (counter) {
+          counter.textContent = `${selectedImages.length}/${MAX_IMAGES}枚選択中`;
+        }
       }
 
       async function postToBluesky() {
@@ -297,7 +320,8 @@
       accept="image/*"
       multiple
       onchange="previewImages(event)"
-    /><br />
+    />
+    <span id="imageCounter">0/4枚選択中</span><br />
     <div id="imagePreviewContainer"></div>
     <br />
     <button onclick="postToBluesky()">Blueskyに投稿</button>
