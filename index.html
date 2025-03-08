@@ -578,32 +578,145 @@
           container.style.padding = "10px";
           container.style.backgroundColor = "#f0f0f0";
 
-          // CORSプロキシを使用してOGP情報を取得
-          const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
-          const response = await fetch(proxyUrl);
+          console.log("取得するURL:", url);
 
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+          // YouTubeのURLかどうかを判定
+          const isYouTube =
+            url.includes("youtube.com") || url.includes("youtu.be");
+          console.log("YouTubeのURL:", isYouTube);
+
+          let title = null;
+          let description = null;
+          let imageUrl = null;
+
+          if (isYouTube) {
+            // YouTubeの場合は元のプロキシを使用
+            const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+            console.log("YouTubeのプロキシURL:", proxyUrl);
+
+            const response = await fetch(proxyUrl);
+
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const html = await response.text();
+            console.log("YouTubeのレスポンスデータ取得成功");
+
+            // OGP情報を抽出
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, "text/html");
+
+            // すべてのメタタグをログに出力（デバッグ用）
+            console.log("YouTubeのメタタグ一覧:");
+            const metaTags = doc.querySelectorAll("meta");
+            metaTags.forEach((tag) => {
+              const prop =
+                tag.getAttribute("property") || tag.getAttribute("name");
+              const content = tag.getAttribute("content");
+              if (prop && content) {
+                console.log(`${prop} = ${content}`);
+              }
+            });
+
+            // YouTubeのOGP情報を取得
+            title =
+              doc.querySelector('meta[property="og:title"]')?.content ||
+              doc.querySelector("title")?.textContent ||
+              url;
+
+            description =
+              doc.querySelector('meta[property="og:description"]')?.content ||
+              doc.querySelector('meta[name="description"]')?.content ||
+              "";
+
+            imageUrl =
+              doc.querySelector('meta[property="og:image"]')?.content || "";
+
+            console.log("YouTube取得タイトル:", title);
+            console.log("YouTube取得説明:", description);
+            console.log("YouTube取得画像URL:", imageUrl);
+          } else {
+            // YouTube以外の場合はalloriginsを使用
+            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
+              url
+            )}`;
+            console.log("プロキシURL:", proxyUrl);
+
+            const response = await fetch(proxyUrl);
+
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const html = data.contents;
+
+            console.log("レスポンスデータ取得成功");
+
+            // OGP情報を抽出
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, "text/html");
+
+            // すべてのメタタグをログに出力（デバッグ用）
+            console.log("メタタグ一覧:");
+            const metaTags = doc.querySelectorAll("meta");
+            metaTags.forEach((tag) => {
+              const prop =
+                tag.getAttribute("property") || tag.getAttribute("name");
+              const content = tag.getAttribute("content");
+              if (prop && content) {
+                console.log(`${prop} = ${content}`);
+              }
+            });
+
+            // OGPタグを直接探す
+            // タイトルを取得（優先順位: og:title > twitter:title > titleタグ > URL）
+            title =
+              doc
+                .querySelector('meta[property="og:title"]')
+                ?.getAttribute("content") ||
+              doc
+                .querySelector('meta[name="twitter:title"]')
+                ?.getAttribute("content") ||
+              doc.querySelector("title")?.textContent ||
+              url;
+            console.log("取得したタイトル:", title);
+
+            // 説明を取得（優先順位: og:description > twitter:description > description > 空文字）
+            description =
+              doc
+                .querySelector('meta[property="og:description"]')
+                ?.getAttribute("content") ||
+              doc
+                .querySelector('meta[name="twitter:description"]')
+                ?.getAttribute("content") ||
+              doc
+                .querySelector('meta[name="description"]')
+                ?.getAttribute("content") ||
+              "";
+            console.log("取得した説明:", description);
+
+            // 画像URLを取得（優先順位: og:image > twitter:image > 空文字）
+            imageUrl =
+              doc
+                .querySelector('meta[property="og:image"]')
+                ?.getAttribute("content") ||
+              doc
+                .querySelector('meta[name="twitter:image"]')
+                ?.getAttribute("content") ||
+              "";
+
+            // 画像URLが相対パスの場合、絶対パスに変換
+            if (imageUrl && !imageUrl.startsWith("http")) {
+              const urlObj = new URL(url);
+              imageUrl = `${urlObj.protocol}//${urlObj.host}${
+                imageUrl.startsWith("/") ? "" : "/"
+              }${imageUrl}`;
+            }
+
+            console.log("取得した画像URL:", imageUrl);
           }
-
-          const html = await response.text();
-
-          // OGP情報を抽出
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(html, "text/html");
-
-          const title =
-            doc.querySelector('meta[property="og:title"]')?.content ||
-            doc.querySelector("title")?.textContent ||
-            url;
-
-          const description =
-            doc.querySelector('meta[property="og:description"]')?.content ||
-            doc.querySelector('meta[name="description"]')?.content ||
-            "";
-
-          const imageUrl =
-            doc.querySelector('meta[property="og:image"]')?.content || "";
 
           // URLカードを作成
           container.innerHTML = "";
