@@ -37,6 +37,39 @@
         align-items: center;
         justify-content: center;
       }
+      #urlCardContainer {
+        margin: 10px 0;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        overflow: hidden;
+        max-width: 500px;
+        display: none;
+      }
+      .urlCard {
+        display: flex;
+        flex-direction: column;
+      }
+      .urlCardImage {
+        width: 100%;
+        max-height: 250px;
+        object-fit: cover;
+      }
+      .urlCardContent {
+        padding: 10px;
+      }
+      .urlCardTitle {
+        font-weight: bold;
+        margin-bottom: 5px;
+      }
+      .urlCardDescription {
+        font-size: 0.9em;
+        color: #666;
+        margin-bottom: 5px;
+      }
+      .urlCardUrl {
+        font-size: 0.8em;
+        color: #999;
+      }
     </style>
     <script>
       // 選択された画像の配列を保持
@@ -507,6 +540,8 @@
         const text = encodeURIComponent(
           document.getElementById("postText").value
         );
+        console.log(text);
+        console.log(`https://bsky.app/intent/compose?text=${text}`);
         window.open(`https://bsky.app/intent/compose?text=${text}`, "_blank");
       }
 
@@ -516,6 +551,107 @@
         localStorage.setItem("bluesky_handle", handle);
         localStorage.setItem("bluesky_app_password", appPassword);
         alert("Blueskyの認証情報を保存しました");
+      }
+
+      // URLを抽出する関数
+      function extractUrl(text) {
+        const urlRegex = /(https?:\/\/[^\s]+)/g;
+        const matches = text.match(urlRegex);
+        return matches ? matches[0] : null;
+      }
+
+      // URLカードを取得する関数
+      async function getUrlCard() {
+        const text = document.getElementById("postText").value;
+        const url = extractUrl(text);
+
+        if (!url) {
+          alert("テキスト内にURLが見つかりませんでした");
+          return;
+        }
+
+        try {
+          // URLカードコンテナを表示
+          const container = document.getElementById("urlCardContainer");
+          container.innerHTML = "URLカードを読み込み中...";
+          container.style.display = "block";
+          container.style.padding = "10px";
+          container.style.backgroundColor = "#f0f0f0";
+
+          // CORSプロキシを使用してOGP情報を取得
+          const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+          const response = await fetch(proxyUrl);
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const html = await response.text();
+
+          // OGP情報を抽出
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, "text/html");
+
+          const title =
+            doc.querySelector('meta[property="og:title"]')?.content ||
+            doc.querySelector("title")?.textContent ||
+            url;
+
+          const description =
+            doc.querySelector('meta[property="og:description"]')?.content ||
+            doc.querySelector('meta[name="description"]')?.content ||
+            "";
+
+          const imageUrl =
+            doc.querySelector('meta[property="og:image"]')?.content || "";
+
+          // URLカードを作成
+          container.innerHTML = "";
+          container.style.padding = "0";
+          container.style.backgroundColor = "transparent";
+
+          const card = document.createElement("div");
+          card.className = "urlCard";
+
+          if (imageUrl) {
+            const img = document.createElement("img");
+            img.className = "urlCardImage";
+            img.src = imageUrl;
+            img.alt = title;
+            img.onerror = function () {
+              this.style.display = "none";
+            };
+            card.appendChild(img);
+          }
+
+          const content = document.createElement("div");
+          content.className = "urlCardContent";
+
+          const titleElement = document.createElement("div");
+          titleElement.className = "urlCardTitle";
+          titleElement.textContent = title;
+          content.appendChild(titleElement);
+
+          if (description) {
+            const descElement = document.createElement("div");
+            descElement.className = "urlCardDescription";
+            descElement.textContent = description;
+            content.appendChild(descElement);
+          }
+
+          const urlElement = document.createElement("div");
+          urlElement.className = "urlCardUrl";
+          urlElement.textContent = url;
+          content.appendChild(urlElement);
+
+          card.appendChild(content);
+          container.appendChild(card);
+        } catch (error) {
+          console.error("URLカードの取得に失敗しました:", error);
+          const container = document.getElementById("urlCardContainer");
+          container.innerHTML = "URLカードの取得に失敗しました";
+          container.style.color = "red";
+        }
       }
     </script>
   </head>
@@ -529,6 +665,9 @@
       placeholder="投稿内容を入力"
     ></textarea
     ><br />
+    <button id="getUrlCardButton" onclick="getUrlCard()">URLカードを取得</button
+    ><br />
+    <div id="urlCardContainer"></div>
     <label for="imageFile">画像を選択（最大4枚）:</label>
     <input
       type="file"
