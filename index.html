@@ -503,6 +503,13 @@
         window.open(`https://twitter.com/intent/tweet?text=${text}`, "_blank");
       }
 
+      function openBlueskyPostPage() {
+        const text = encodeURIComponent(
+          document.getElementById("postText").value
+        );
+        window.open(`https://bsky.app/intent/compose?text=${text}`, "_blank");
+      }
+
       function saveCredentials() {
         const handle = document.getElementById("blueskyHandle").value;
         const appPassword = document.getElementById("blueskyAppPassword").value;
@@ -535,6 +542,7 @@
     <br />
     <button onclick="postToBluesky()">Blueskyに投稿</button>
     <button onclick="openXPostPage()">Xの投稿ページを開く</button>
+    <button onclick="openBlueskyPostPage()">Blueskyの投稿ページを開く</button>
 
     <h3>Blueskyの認証情報</h3>
     <label>ハンドル（例: user.bsky.social）</label>
