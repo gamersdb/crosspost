@@ -491,6 +491,75 @@
             document.body.removeChild(progressMsg);
           }
 
+          // URLカードが表示されているか確認
+          const urlCardContainer = document.getElementById("urlCardContainer");
+          const isUrlCardVisible = urlCardContainer.style.display === "block";
+          let urlCardData = null;
+
+          // URLカードが表示されている場合、そのデータを取得
+          if (isUrlCardVisible) {
+            const url =
+              urlCardContainer.querySelector(".urlCardUrl")?.textContent;
+            const title =
+              urlCardContainer.querySelector(".urlCardTitle")?.textContent ||
+              "";
+            const description =
+              urlCardContainer.querySelector(".urlCardDescription")
+                ?.textContent || "";
+            const imageElement =
+              urlCardContainer.querySelector(".urlCardImage");
+
+            if (url) {
+              console.log("URLカードを投稿に含めます:", url);
+
+              // 画像がある場合は画像をアップロード
+              let thumb = undefined;
+              if (
+                imageElement &&
+                imageElement.src &&
+                !imageElement.src.startsWith("data:")
+              ) {
+                try {
+                  // 画像をフェッチ
+                  const imgResponse = await fetch(imageElement.src);
+                  if (imgResponse.ok) {
+                    const imgBlob = await imgResponse.blob();
+
+                    // 画像をアップロード
+                    const uploadResponse = await fetch(uploadUrl, {
+                      method: "POST",
+                      headers: {
+                        Authorization: `Bearer ${accessJwt}`,
+                        "Content-Type": imgBlob.type,
+                      },
+                      body: imgBlob,
+                    });
+
+                    if (uploadResponse.ok) {
+                      const uploadData = await uploadResponse.json();
+                      thumb = uploadData.blob;
+                      console.log("URLカード画像のアップロード成功:", thumb);
+                    }
+                  }
+                } catch (error) {
+                  console.error("URLカード画像のアップロードに失敗:", error);
+                  // エラーがあっても処理を続行
+                }
+              }
+
+              // URLカードデータを作成
+              urlCardData = {
+                $type: "app.bsky.embed.external",
+                external: {
+                  uri: url,
+                  title: title,
+                  description: description,
+                  thumb: thumb,
+                },
+              };
+            }
+          }
+
           // Post to Bluesky
           const payload = {
             collection: "app.bsky.feed.post",
@@ -500,12 +569,13 @@
               text: text,
               createdAt: new Date().toISOString(),
               embed:
-                uploadedImages.length > 0
+                urlCardData ||
+                (uploadedImages.length > 0
                   ? {
                       $type: "app.bsky.embed.images",
                       images: uploadedImages,
                     }
-                  : undefined,
+                  : undefined),
             },
           };
 
