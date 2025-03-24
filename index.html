@@ -37,6 +37,39 @@
         align-items: center;
         justify-content: center;
       }
+      #urlCardContainer {
+        margin: 10px 0;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        overflow: hidden;
+        max-width: 500px;
+        display: none;
+      }
+      .urlCard {
+        display: flex;
+        flex-direction: column;
+      }
+      .urlCardImage {
+        width: 100%;
+        max-height: 250px;
+        object-fit: cover;
+      }
+      .urlCardContent {
+        padding: 10px;
+      }
+      .urlCardTitle {
+        font-weight: bold;
+        margin-bottom: 5px;
+      }
+      .urlCardDescription {
+        font-size: 0.9em;
+        color: #666;
+        margin-bottom: 5px;
+      }
+      .urlCardUrl {
+        font-size: 0.8em;
+        color: #999;
+      }
     </style>
     <script>
       // 選択された画像の配列を保持
@@ -458,6 +491,75 @@
             document.body.removeChild(progressMsg);
           }
 
+          // URLカードが表示されているか確認
+          const urlCardContainer = document.getElementById("urlCardContainer");
+          const isUrlCardVisible = urlCardContainer.style.display === "block";
+          let urlCardData = null;
+
+          // URLカードが表示されている場合、そのデータを取得
+          if (isUrlCardVisible) {
+            const url =
+              urlCardContainer.querySelector(".urlCardUrl")?.textContent;
+            const title =
+              urlCardContainer.querySelector(".urlCardTitle")?.textContent ||
+              "";
+            const description =
+              urlCardContainer.querySelector(".urlCardDescription")
+                ?.textContent || "";
+            const imageElement =
+              urlCardContainer.querySelector(".urlCardImage");
+
+            if (url) {
+              console.log("URLカードを投稿に含めます:", url);
+
+              // 画像がある場合は画像をアップロード
+              let thumb = undefined;
+              if (
+                imageElement &&
+                imageElement.src &&
+                !imageElement.src.startsWith("data:")
+              ) {
+                try {
+                  // 画像をフェッチ
+                  const imgResponse = await fetch(imageElement.src);
+                  if (imgResponse.ok) {
+                    const imgBlob = await imgResponse.blob();
+
+                    // 画像をアップロード
+                    const uploadResponse = await fetch(uploadUrl, {
+                      method: "POST",
+                      headers: {
+                        Authorization: `Bearer ${accessJwt}`,
+                        "Content-Type": imgBlob.type,
+                      },
+                      body: imgBlob,
+                    });
+
+                    if (uploadResponse.ok) {
+                      const uploadData = await uploadResponse.json();
+                      thumb = uploadData.blob;
+                      console.log("URLカード画像のアップロード成功:", thumb);
+                    }
+                  }
+                } catch (error) {
+                  console.error("URLカード画像のアップロードに失敗:", error);
+                  // エラーがあっても処理を続行
+                }
+              }
+
+              // URLカードデータを作成
+              urlCardData = {
+                $type: "app.bsky.embed.external",
+                external: {
+                  uri: url,
+                  title: title,
+                  description: description,
+                  thumb: thumb,
+                },
+              };
+            }
+          }
+
           // Post to Bluesky
           const payload = {
             collection: "app.bsky.feed.post",
@@ -467,12 +569,13 @@
               text: text,
               createdAt: new Date().toISOString(),
               embed:
-                uploadedImages.length > 0
+                urlCardData ||
+                (uploadedImages.length > 0
                   ? {
                       $type: "app.bsky.embed.images",
                       images: uploadedImages,
                     }
-                  : undefined,
+                  : undefined),
             },
           };
 
@@ -507,6 +610,8 @@
         const text = encodeURIComponent(
           document.getElementById("postText").value
         );
+        console.log(text);
+        console.log(`https://bsky.app/intent/compose?text=${text}`);
         window.open(`https://bsky.app/intent/compose?text=${text}`, "_blank");
       }
 
@@ -516,6 +621,220 @@
         localStorage.setItem("bluesky_handle", handle);
         localStorage.setItem("bluesky_app_password", appPassword);
         alert("Blueskyの認証情報を保存しました");
+      }
+
+      // URLを抽出する関数
+      function extractUrl(text) {
+        const urlRegex = /(https?:\/\/[^\s]+)/g;
+        const matches = text.match(urlRegex);
+        return matches ? matches[0] : null;
+      }
+
+      // URLカードを取得する関数
+      async function getUrlCard() {
+        const text = document.getElementById("postText").value;
+        const url = extractUrl(text);
+
+        if (!url) {
+          alert("テキスト内にURLが見つかりませんでした");
+          return;
+        }
+
+        try {
+          // URLカードコンテナを表示
+          const container = document.getElementById("urlCardContainer");
+          container.innerHTML = "URLカードを読み込み中...";
+          container.style.display = "block";
+          container.style.padding = "10px";
+          container.style.backgroundColor = "#f0f0f0";
+
+          console.log("取得するURL:", url);
+
+          // YouTubeのURLかどうかを判定
+          const isYouTube =
+            url.includes("youtube.com") || url.includes("youtu.be");
+          console.log("YouTubeのURL:", isYouTube);
+
+          let title = null;
+          let description = null;
+          let imageUrl = null;
+
+          if (isYouTube) {
+            // YouTubeの場合は元のプロキシを使用
+            const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+            console.log("YouTubeのプロキシURL:", proxyUrl);
+
+            const response = await fetch(proxyUrl);
+
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const html = await response.text();
+            console.log("YouTubeのレスポンスデータ取得成功");
+
+            // OGP情報を抽出
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, "text/html");
+
+            // すべてのメタタグをログに出力（デバッグ用）
+            console.log("YouTubeのメタタグ一覧:");
+            const metaTags = doc.querySelectorAll("meta");
+            metaTags.forEach((tag) => {
+              const prop =
+                tag.getAttribute("property") || tag.getAttribute("name");
+              const content = tag.getAttribute("content");
+              if (prop && content) {
+                console.log(`${prop} = ${content}`);
+              }
+            });
+
+            // YouTubeのOGP情報を取得
+            title =
+              doc.querySelector('meta[property="og:title"]')?.content ||
+              doc.querySelector("title")?.textContent ||
+              url;
+
+            description =
+              doc.querySelector('meta[property="og:description"]')?.content ||
+              doc.querySelector('meta[name="description"]')?.content ||
+              "";
+
+            imageUrl =
+              doc.querySelector('meta[property="og:image"]')?.content || "";
+
+            console.log("YouTube取得タイトル:", title);
+            console.log("YouTube取得説明:", description);
+            console.log("YouTube取得画像URL:", imageUrl);
+          } else {
+            // YouTube以外の場合はalloriginsを使用
+            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
+              url
+            )}`;
+            console.log("プロキシURL:", proxyUrl);
+
+            const response = await fetch(proxyUrl);
+
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const html = data.contents;
+
+            console.log("レスポンスデータ取得成功");
+
+            // OGP情報を抽出
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, "text/html");
+
+            // すべてのメタタグをログに出力（デバッグ用）
+            console.log("メタタグ一覧:");
+            const metaTags = doc.querySelectorAll("meta");
+            metaTags.forEach((tag) => {
+              const prop =
+                tag.getAttribute("property") || tag.getAttribute("name");
+              const content = tag.getAttribute("content");
+              if (prop && content) {
+                console.log(`${prop} = ${content}`);
+              }
+            });
+
+            // OGPタグを直接探す
+            // タイトルを取得（優先順位: og:title > twitter:title > titleタグ > URL）
+            title =
+              doc
+                .querySelector('meta[property="og:title"]')
+                ?.getAttribute("content") ||
+              doc
+                .querySelector('meta[name="twitter:title"]')
+                ?.getAttribute("content") ||
+              doc.querySelector("title")?.textContent ||
+              url;
+            console.log("取得したタイトル:", title);
+
+            // 説明を取得（優先順位: og:description > twitter:description > description > 空文字）
+            description =
+              doc
+                .querySelector('meta[property="og:description"]')
+                ?.getAttribute("content") ||
+              doc
+                .querySelector('meta[name="twitter:description"]')
+                ?.getAttribute("content") ||
+              doc
+                .querySelector('meta[name="description"]')
+                ?.getAttribute("content") ||
+              "";
+            console.log("取得した説明:", description);
+
+            // 画像URLを取得（優先順位: og:image > twitter:image > 空文字）
+            imageUrl =
+              doc
+                .querySelector('meta[property="og:image"]')
+                ?.getAttribute("content") ||
+              doc
+                .querySelector('meta[name="twitter:image"]')
+                ?.getAttribute("content") ||
+              "";
+
+            // 画像URLが相対パスの場合、絶対パスに変換
+            if (imageUrl && !imageUrl.startsWith("http")) {
+              const urlObj = new URL(url);
+              imageUrl = `${urlObj.protocol}//${urlObj.host}${
+                imageUrl.startsWith("/") ? "" : "/"
+              }${imageUrl}`;
+            }
+
+            console.log("取得した画像URL:", imageUrl);
+          }
+
+          // URLカードを作成
+          container.innerHTML = "";
+          container.style.padding = "0";
+          container.style.backgroundColor = "transparent";
+
+          const card = document.createElement("div");
+          card.className = "urlCard";
+
+          if (imageUrl) {
+            const img = document.createElement("img");
+            img.className = "urlCardImage";
+            img.src = imageUrl;
+            img.alt = title;
+            img.onerror = function () {
+              this.style.display = "none";
+            };
+            card.appendChild(img);
+          }
+
+          const content = document.createElement("div");
+          content.className = "urlCardContent";
+
+          const titleElement = document.createElement("div");
+          titleElement.className = "urlCardTitle";
+          titleElement.textContent = title;
+          content.appendChild(titleElement);
+
+          if (description) {
+            const descElement = document.createElement("div");
+            descElement.className = "urlCardDescription";
+            descElement.textContent = description;
+            content.appendChild(descElement);
+          }
+
+          const urlElement = document.createElement("div");
+          urlElement.className = "urlCardUrl";
+          urlElement.textContent = url;
+          content.appendChild(urlElement);
+
+          card.appendChild(content);
+          container.appendChild(card);
+        } catch (error) {
+          console.error("URLカードの取得に失敗しました:", error);
+          const container = document.getElementById("urlCardContainer");
+          container.innerHTML = "URLカードの取得に失敗しました";
+          container.style.color = "red";
+        }
       }
     </script>
   </head>
@@ -529,6 +848,9 @@
       placeholder="投稿内容を入力"
     ></textarea
     ><br />
+    <button id="getUrlCardButton" onclick="getUrlCard()">URLカードを取得</button
+    ><br />
+    <div id="urlCardContainer"></div>
     <label for="imageFile">画像を選択（最大4枚）:</label>
     <input
       type="file"
