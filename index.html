@@ -70,8 +70,36 @@
         font-size: 0.8em;
         color: #999;
       }
+      #characterCount {
+        color: #666;
+        margin: 5px 0;
+        font-size: 0.9em;
+      }
+      #characterCount.over-limit {
+        color: red;
+      }
     </style>
     <script>
+      // Unicode Grapheme Cluster単位での文字数カウント
+      function countGraphemeClusters(text) {
+        if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+          const segmenter = new Intl.Segmenter('und', { granularity: 'grapheme' });
+          return [...segmenter.segment(text)].length;
+        }
+        // フォールバック: JavaScriptの文字列長を使用
+        return [...text].length;
+      }
+
+      function updateCharacterCount() {
+        const text = document.getElementById("postText").value;
+        const count = countGraphemeClusters(text);
+        const limit = 300;
+        const remaining = limit - count;
+        const countElement = document.getElementById("characterCount");
+        countElement.textContent = `${count}/${limit} (残り${remaining})`;
+        countElement.className = remaining < 0 ? "character-count over-limit" : "character-count";
+      }
+
       // 選択された画像の配列を保持
       let selectedImages = [];
       const MAX_IMAGES = 4;
@@ -836,6 +864,19 @@
           container.style.color = "red";
         }
       }
+
+      // 初期化時の設定
+      document.addEventListener("DOMContentLoaded", function() {
+        const textarea = document.getElementById("postText");
+        textarea.addEventListener("input", updateCharacterCount);
+        updateCharacterCount(); // 初期表示
+        
+        // 保存された認証情報があれば読み込む
+        const savedHandle = localStorage.getItem("bluesky_handle");
+        const savedAppPassword = localStorage.getItem("bluesky_app_password");
+        if (savedHandle) document.getElementById("blueskyHandle").value = savedHandle;
+        if (savedAppPassword) document.getElementById("blueskyAppPassword").value = savedAppPassword;
+      });
     </script>
   </head>
   <body>
@@ -847,6 +888,7 @@
       cols="100"
       placeholder="投稿内容を入力"
     ></textarea>
+    <div id="characterCount"></div>
     <br />
     <button id="getUrlCardButton" onclick="getUrlCard()">URLカードを取得</button
     ><br />
